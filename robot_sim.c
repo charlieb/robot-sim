@@ -159,7 +159,7 @@ void to_coords(unsigned int *x, unsigned int *y, float llen, float rlen, enum ro
 
 void recalc_draw_data(struct draw_data *data)
 {
-    const float ustep = 1.0 / 1.0;
+    const float ustep = 1.0 / 16.0;
     gboolean pen_down = FALSE;
     unsigned int x, y;
     float rlen = 150.0f, llen = 150.0f;
@@ -213,6 +213,13 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
         gpointer gdata)
 {
     struct draw_data *data = gdata;
+ 
+    gdk_draw_rectangle(widget->window,
+            widget->style->white_gc,
+            TRUE,
+            0, 0,
+            widget->allocation.width,
+            widget->allocation.height);
 
     for(GList *points = data->poses; points != NULL; points = points->next)
         gdk_draw_point(widget->window,
@@ -262,7 +269,7 @@ void launch_ui(int argc, char **argv)
     
     // Create a drawing area
     GtkWidget *drawing_area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(drawing_area, 100, 100);
+    gtk_widget_set_size_request(drawing_area, 1400, 850);
     // Expose event is our trigger to redraw
     g_signal_connect (G_OBJECT(drawing_area), "expose_event",
             G_CALLBACK(expose_event), (gpointer)&data);
