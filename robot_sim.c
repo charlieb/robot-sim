@@ -61,28 +61,31 @@ char to_char(char ch)
 unsigned int pack(char ins[3])
 {
     unsigned int res = 0;
-    res += to_num(ins[0]) << LEF_SHIFT;
-    res += to_num(ins[1]) << RIG_SHIFT;
-    res += to_num(ins[0]) << PEN_SHIFT;
+    res += to_num(ins[LEFT]) << LEF_SHIFT;
+    res += to_num(ins[RIGHT]) << RIG_SHIFT;
+    res += to_num(ins[PEN]) << PEN_SHIFT;
     return res;
 }
 
 void unpack(char ins[3], unsigned int val)
 {
-    ins[0] = to_char((char)((val | LEF_MASK) >> LEF_SHIFT));
-    ins[1] = to_char((char)((val | RIG_MASK) >> RIG_SHIFT));
-    ins[2] = to_char((char)((val | PEN_MASK) >> PEN_SHIFT));
+    ins[LEFT] = to_char((char)((val & LEF_MASK) >> LEF_SHIFT));
+    ins[RIGHT] = to_char((char)((val & RIG_MASK) >> RIG_SHIFT));
+    ins[PEN] = to_char((char)((val & PEN_MASK) >> PEN_SHIFT));
 }
 
 void pack_unpack_test()
 {
     char test[3][3] = {"+-.", ".+-", "-.+"};
-    g_assert(pack(test[0]) == 0b01100);
+    g_assert(pack(test[0]) == 0b011000);
+
 
     char out[3];
     for(int i = 0; i < 3; i++) {
         memset(out, 0, 3);
         unpack(out, pack(test[i]));
+        /* printf("%c%c%c\n", test[i][0], test[i][1], test[i][2]); */
+        /* printf("%c%c%c\n", out[0], out[1], out[2]); */
         g_assert(0 == strncmp(test[i], out, 3));
     }
 }
@@ -90,7 +93,7 @@ void pack_unpack_test()
 /********** INPUT FILE READING *******************/
 /**
  * Reads a file of triples, one on each line.
- * If it encounters a bad line it will continue and return the 
+ * If it encounters a bad line it will continue and return the
  * negative 1-indexed line number, otherwise returns the number of lines read
  * without incedent.
  * */
@@ -105,9 +108,15 @@ int read_file(FILE *f, GList **list)
             err = -i;
         else 
             *list = g_list_prepend(*list, GINT_TO_POINTER(pack(line)));
+        /* printf("%c%c%c\n", line[0], line[1], line[2]); */
 
-        GList *first = g_list_first(*list);
-        if(first) printf("%p\n", first->data);
+        /* GList *first = g_list_first(*list); */
+        /* if(first) { */
+        /*     // printf("%p\n", first->data); */
+        /*     char out[3]; */
+        /*     unpack(out, GPOINTER_TO_INT(first->data)); */
+        /*     printf("%c%c%c\n", out[0], out[1], out[2]); */
+        /* } */
     }
     return err ? err : i;
 }
@@ -127,6 +136,7 @@ GList *read_data(char *fname)
     
     fclose(f);
     triples = g_list_reverse(triples);
+    printf("Read %i steps\n", g_list_length(triples));
     return triples;
 }
 
@@ -134,9 +144,9 @@ GList *read_data(char *fname)
 enum robot_type { wires, planar, elbow };
 struct draw_data {
     GList *steps;
-    GList *lens;
     GList *poses;
     guint pos;
+    unsigned int *pos_data;
     enum robot_type type;
 };
 void to_coords(unsigned int *x, unsigned int *y, float llen, float rlen, enum robot_type type)
@@ -148,17 +158,23 @@ void to_coords(unsigned int *x, unsigned int *y, float llen, float rlen, enum ro
 
 void recalc_draw_data(struct draw_data *data)
 {
-    const float ustep = 1.0 / 16.0;
+    const float ustep = 1.0 / 4.0;
     gboolean pen_down = FALSE;
     unsigned int x, y;
-    float rlen, llen;
+    float rlen = 150.0f, llen = 150.0f;
     char lrp[3]; // left, right, pen
 
-    g_list_free(data->lens);
     g_list_free(data->poses);
+    if(data->pos_data != NULL) free(data->pos_data);
+
+    // allocate enough memory for one set of coords for every step.
+    data->pos_data = malloc(2 * g_list_length(data->steps) * sizeof(unsigned int));
+    memset(data->pos_data, 0, 2 * g_list_length(data->steps) * sizeof(unsigned int));
+
     for(GList *step = data->steps; step != NULL; step = step->next) {
         // Process the movement
         unpack(lrp, GPOINTER_TO_INT(step->data));
+        //printf("%c%c%c\n", lrp[0], lrp[1], lrp[2]);
         switch(lrp[LEFT]) {
             case POS_CHAR: llen += ustep; break;
             case NEG_CHAR: llen -= ustep; break;
@@ -173,12 +189,21 @@ void recalc_draw_data(struct draw_data *data)
         }
         
         // Was there actually a movement worth recording?
-        // not if the pen wasn't down there isn't!
+        // not if the pen wasn't down there wasn't!
         if(!pen_down) continue;
         to_coords(&x, &y, llen, rlen, data->type);
-        
-
+        // only record a new pos if we moved to a new pixel position
+        if(data->poses == NULL || 
+                ((int*)data->poses->data)[0] != x ||
+                ((int*)data->poses->data)[1] != y) {
+            int nposes = g_list_length(data->poses);
+            data->poses = g_list_prepend(data->poses, &data->pos_data[nposes * 2]);
+            data->pos_data[nposes * 2 + 0] = x;
+            data->pos_data[nposes * 2 + 1] = y;
+            printf("(%i, %i)\n", x,y);
+        }
     }
+    data->poses = g_list_reverse(data->poses);
 }
 
 /******************* UI *************************/
@@ -188,11 +213,11 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
 {
     struct draw_data *data = gdata;
 
-    gdk_draw_arc(widget->window,
-            widget->style->fg_gc[gtk_widget_get_state (widget)],
-            TRUE,
-            0, 0, widget->allocation.width, widget->allocation.height,
-            0, 64 * 360);
+    for(GList *points = data->poses; points != NULL; points = points->next)
+        gdk_draw_point(widget->window,
+                    widget->style->fg_gc[gtk_widget_get_state (widget)],
+                    ((int*)points->data)[0],
+                    ((int*)points->data)[1]);
     return TRUE;
 }
 
@@ -215,15 +240,15 @@ static void destroy(GtkWidget *widget, gpointer data)
 void launch_ui(int argc, char **argv)
 {
     GtkWidget *window;
-    
+
     gtk_init(&argc, &argv);
 
     struct draw_data data = {0,};
-    
+
     data.steps = read_data("input.txt");
     data.type = wires;
     recalc_draw_data(&data);
-    
+
     // Main window
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 
@@ -253,7 +278,6 @@ void launch_ui(int argc, char **argv)
 
     /* cleanup */
     g_list_free(data.steps);
-    g_list_free(data.lens);
     g_list_free(data.poses);
 }
 
@@ -263,7 +287,7 @@ int main(int argc, char **argv)
     /* pre-test */
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/pack_unpack", pack_unpack_test);
-
+    g_test_run();
 
     /* UI */
     launch_ui(argc, argv);
