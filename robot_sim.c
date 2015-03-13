@@ -152,13 +152,14 @@ struct draw_data {
 void to_coords(unsigned int *x, unsigned int *y, float llen, float rlen, enum robot_type type)
 {
     float d = 200.0;
-    *x = (d*d + llen*llen - rlen*rlen) / (2.0 * d);
-    *y = sqrt(*x * *x + llen*llen);
+    float xf = (d*d + llen*llen - rlen*rlen) / (2.0 * d);
+    *x = xf;
+    *y = sqrt(llen*llen - xf*xf);
 }
 
 void recalc_draw_data(struct draw_data *data)
 {
-    const float ustep = 1.0 / 4.0;
+    const float ustep = 1.0 / 1.0;
     gboolean pen_down = FALSE;
     unsigned int x, y;
     float rlen = 150.0f, llen = 150.0f;
