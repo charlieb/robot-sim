@@ -213,19 +213,23 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
         gpointer gdata)
 {
     struct draw_data *data = gdata;
- 
-    gdk_draw_rectangle(widget->window,
-            widget->style->white_gc,
-            TRUE,
-            0, 0,
-            widget->allocation.width,
-            widget->allocation.height);
 
-    for(GList *points = data->poses; points != NULL; points = points->next)
-        gdk_draw_point(widget->window,
-                    widget->style->fg_gc[gtk_widget_get_state (widget)],
-                    ((int*)points->data)[0],
-                    ((int*)points->data)[1]);
+    cairo_t *cr = gdk_cairo_create(widget->window);
+    cairo_set_source_rgb(cr,1,1,1);
+    cairo_fill(cr);
+
+    const float pi2 = 6.28318530718;
+    cairo_set_source_rgb(cr,0,0,0);
+    for(GList *points = data->poses; points != NULL; points = points->next) {
+      cairo_arc(cr, 
+                ((int*)points->data)[0],
+                ((int*)points->data)[1],
+                2,
+                0, pi2);
+      cairo_fill(cr);
+    }
+
+    cairo_destroy(cr);
     return TRUE;
 }
 
@@ -264,9 +268,6 @@ void launch_ui(int argc, char **argv)
     g_signal_connect(window, "delete-event", G_CALLBACK(delete_event), NULL);
     g_signal_connect(window, "destroy", G_CALLBACK(destroy), NULL);
 
-    // Give us a little border around the drawingarea I'm about to add
-    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
-    
     // Create a drawing area
     GtkWidget *drawing_area = gtk_drawing_area_new();
     gtk_widget_set_size_request(drawing_area, 1400, 850);
