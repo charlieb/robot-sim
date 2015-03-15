@@ -6,6 +6,7 @@
 #include <glib.h>
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include <gdk/gdkkeysyms.h>
 
 #define LEFT 0
 #define RIGHT 1
@@ -146,12 +147,12 @@ struct draw_data {
     GList *steps;
     GList *poses;
     guint pos;
-    unsigned int *pos_data;
+    float *pos_data;
     enum robot_type type;
 };
-void to_coords(unsigned int *x, unsigned int *y, float llen, float rlen, enum robot_type type)
+void to_coords(float *x, float *y, float llen, float rlen, enum robot_type type)
 {
-    float d = 200.0;
+    float d = 1.0;
     float xf = (d*d + llen*llen - rlen*rlen) / (2.0 * d);
     *x = xf;
     *y = sqrt(llen*llen - xf*xf);
@@ -159,18 +160,19 @@ void to_coords(unsigned int *x, unsigned int *y, float llen, float rlen, enum ro
 
 void recalc_draw_data(struct draw_data *data)
 {
-    const float ustep = 1.0 / 16.0;
+    const float ustep = 1.0 / 3200.0;
     gboolean pen_down = FALSE;
-    unsigned int x, y;
-    float rlen = 150.0f, llen = 150.0f;
+    float x, y;
+    float rlen = 0.5f, llen = 0.5f;
     char lrp[3]; // left, right, pen
+    int nposes = 0;
 
     g_list_free(data->poses);
     if(data->pos_data != NULL) free(data->pos_data);
 
     // allocate enough memory for one set of coords for every step.
-    data->pos_data = malloc(2 * g_list_length(data->steps) * sizeof(unsigned int));
-    memset(data->pos_data, 0, 2 * g_list_length(data->steps) * sizeof(unsigned int));
+    data->pos_data = malloc(2 * g_list_length(data->steps) * sizeof(float));
+    memset(data->pos_data, 0, 2 * g_list_length(data->steps) * sizeof(float));
 
     for(GList *step = data->steps; step != NULL; step = step->next) {
         // Process the movement
@@ -193,16 +195,11 @@ void recalc_draw_data(struct draw_data *data)
         // not if the pen wasn't down there wasn't!
         if(!pen_down) continue;
         to_coords(&x, &y, llen, rlen, data->type);
-        // only record a new pos if we moved to a new pixel position
-        if(data->poses == NULL || 
-                ((int*)data->poses->data)[0] != x ||
-                ((int*)data->poses->data)[1] != y) {
-            int nposes = g_list_length(data->poses);
-            data->poses = g_list_prepend(data->poses, &data->pos_data[nposes * 2]);
-            data->pos_data[nposes * 2 + 0] = x;
-            data->pos_data[nposes * 2 + 1] = y;
-            printf("(%i, %i)\n", x,y);
-        }
+        //printf("(%f,%f)\n", x,y);
+        data->poses = g_list_prepend(data->poses, &data->pos_data[nposes * 2]);
+        data->pos_data[nposes * 2 + 0] = x;
+        data->pos_data[nposes * 2 + 1] = y;
+        nposes++;
     }
     data->poses = g_list_reverse(data->poses);
 }
@@ -213,17 +210,48 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
         gpointer gdata)
 {
     struct draw_data *data = gdata;
+    const float pi2 = 6.28318530718;
+    const float wheel = 0.05;
+    const float paper = 0.1;
+    const float paper_size = 1.0 - 2 * paper;
+
+    int x, y;
+    // US legal = 8.5 x 14
+    // add one to each in landscape orientation
+    float ratio = 15.0 / 9.5;
+    // Scale x and y to the desired aspect ratio
+    if(widget->allocation.width / (float)widget->allocation.height < ratio) {
+      x = widget->allocation.width;
+      y = widget->allocation.width / ratio;
+    }
+    else {
+      x = widget->allocation.height * ratio;
+      y = widget->allocation.height;
+    }
 
     cairo_t *cr = gdk_cairo_create(widget->window);
     cairo_set_source_rgb(cr,1,1,1);
     cairo_fill(cr);
 
-    const float pi2 = 6.28318530718;
+    cairo_set_source_rgb(cr,1,0,0);
+    cairo_rectangle(cr,
+                    paper * x, 
+                    paper * y, 
+                    paper_size * x,
+                    paper_size * y);
+    cairo_stroke(cr);
+
+    cairo_set_source_rgb(cr,0.5,0.5,0.5);
+    cairo_arc(cr, x * wheel, y * wheel, 0.5*x*wheel, 0, pi2);
+    cairo_fill(cr);
+    cairo_arc(cr, x * (1.0 - wheel), y * wheel, 0.5*x*wheel, 0, pi2);
+    cairo_fill(cr);
+
     cairo_set_source_rgb(cr,0,0,0);
     for(GList *points = data->poses; points != NULL; points = points->next) {
       cairo_arc(cr, 
-                ((int*)points->data)[0],
-                ((int*)points->data)[1],
+                ((float*)points->data)[0] * paper_size * x + paper * x,
+                ((float*)points->data)[1] * paper_size * x + paper * y,
                 2,
                 0, pi2);
       cairo_fill(cr);
@@ -231,6 +259,17 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
 
     cairo_destroy(cr);
     return TRUE;
+}
+
+static gboolean keypress(GtkWidget *widget,
+                             GdkEventKey *event,
+                             gpointer data)
+{
+  switch(event->keyval) {
+    case GDK_q:
+      g_signal_emit_by_name(widget, "delete-event");
+  }
+  return FALSE;
 }
 
 static gboolean delete_event(GtkWidget *widget,
@@ -248,6 +287,41 @@ static void destroy(GtkWidget *widget, gpointer data)
     gtk_main_quit ();
 }
 
+static void start_pressed(GtkWidget *widget, gpointer sliderp)
+{
+  gtk_range_set_value(sliderp, 0);
+}
+
+static void end_pressed(GtkWidget *widget, gpointer sliderp)
+{
+  gtk_range_set_value(sliderp, 
+      gtk_adjustment_get_upper(gtk_range_get_adjustment(sliderp)));
+}
+
+void add_control_bar(GtkWidget *container)
+{
+  // GtkWidget *
+  // gtk_hbox_new (gboolean homogeneous,
+  //               gint spacing);
+  GtkWidget *bar = gtk_hbox_new(FALSE, 10);
+  GtkWidget *start = gtk_button_new_with_label("|<");
+  GtkWidget *unstep = gtk_button_new_with_label("<");
+  GtkWidget *step = gtk_button_new_with_label("<");
+  GtkWidget *end = gtk_button_new_with_label(">|");
+  GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
+
+  gtk_container_add(GTK_CONTAINER(bar), start);
+  gtk_container_add(GTK_CONTAINER(bar), unstep);
+  gtk_container_add(GTK_CONTAINER(bar), step);
+  gtk_container_add(GTK_CONTAINER(bar), end);
+  gtk_container_add(GTK_CONTAINER(bar), slider);
+
+  g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
+  g_signal_connect(end, "clicked", G_CALLBACK(end_pressed), slider);
+
+  gtk_container_add(GTK_CONTAINER(container), bar);
+  gtk_widget_show(bar);
+}
 
 void launch_ui(int argc, char **argv)
 {
@@ -267,19 +341,30 @@ void launch_ui(int argc, char **argv)
     // Main window close signal handlers
     g_signal_connect(window, "delete-event", G_CALLBACK(delete_event), NULL);
     g_signal_connect(window, "destroy", G_CALLBACK(destroy), NULL);
+    // Handle keyboard interaction
+    g_signal_connect(G_OBJECT(window), "key_press_event", G_CALLBACK(keypress), NULL);
+
+    // Vertical widget container
+    GtkWidget *box = gtk_vbox_new(FALSE, 0);
+
+    add_control_bar(box);
 
     // Create a drawing area
     GtkWidget *drawing_area = gtk_drawing_area_new();
     gtk_widget_set_size_request(drawing_area, 1400, 850);
     // Expose event is our trigger to redraw
-    g_signal_connect (G_OBJECT(drawing_area), "expose_event",
+    g_signal_connect(G_OBJECT(drawing_area), "expose_event",
             G_CALLBACK(expose_event), (gpointer)&data);
 
-    // Add the drawing area to the main window
-    gtk_container_add(GTK_CONTAINER(window), drawing_area);
+    // Add the drawing area to the box
+    gtk_container_add(GTK_CONTAINER(box), drawing_area);
+
+    // Add the box to the main window
+    gtk_container_add(GTK_CONTAINER(window), box);
 
     // Show the stuff we just created, main window last
     gtk_widget_show(drawing_area);
+    gtk_widget_show(box);
     gtk_widget_show(window);
     
     // Main loop
