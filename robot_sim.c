@@ -291,6 +291,14 @@ static void start_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, 0);
 }
+static void unstep_pressed(GtkWidget *widget, gpointer sliderp)
+{
+  gtk_range_set_value(sliderp, gtk_range_get_value(sliderp) - 1);
+}
+static void step_pressed(GtkWidget *widget, gpointer sliderp)
+{
+  gtk_range_set_value(sliderp, gtk_range_get_value(sliderp) + 1);
+}
 
 static void end_pressed(GtkWidget *widget, gpointer sliderp)
 {
@@ -298,7 +306,7 @@ static void end_pressed(GtkWidget *widget, gpointer sliderp)
       gtk_adjustment_get_upper(gtk_range_get_adjustment(sliderp)));
 }
 
-void add_control_bar(GtkWidget *container)
+GtkWidget *control_bar()
 {
   // GtkWidget *
   // gtk_hbox_new (gboolean homogeneous,
@@ -306,21 +314,36 @@ void add_control_bar(GtkWidget *container)
   GtkWidget *bar = gtk_hbox_new(FALSE, 10);
   GtkWidget *start = gtk_button_new_with_label("|<");
   GtkWidget *unstep = gtk_button_new_with_label("<");
-  GtkWidget *step = gtk_button_new_with_label("<");
+  GtkWidget *step = gtk_button_new_with_label(">");
   GtkWidget *end = gtk_button_new_with_label(">|");
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
 
-  gtk_container_add(GTK_CONTAINER(bar), start);
-  gtk_container_add(GTK_CONTAINER(bar), unstep);
-  gtk_container_add(GTK_CONTAINER(bar), step);
-  gtk_container_add(GTK_CONTAINER(bar), end);
-  gtk_container_add(GTK_CONTAINER(bar), slider);
+  /*
+   * gtk_box_pack_start (GtkBox *box,
+   *                     GtkWidget *child,
+   *                     gboolean expand,
+   *                     gboolean fill,
+   *                     guint padding);
+   */
+  gtk_box_pack_start(GTK_BOX(bar), start, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bar), unstep, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bar), step, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bar), end, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bar), slider, TRUE, TRUE, 0);
 
   g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
+  g_signal_connect(unstep, "clicked", G_CALLBACK(unstep_pressed), slider);
+  g_signal_connect(step, "clicked", G_CALLBACK(step_pressed), slider);
   g_signal_connect(end, "clicked", G_CALLBACK(end_pressed), slider);
 
-  gtk_container_add(GTK_CONTAINER(container), bar);
+  gtk_widget_show(start);
+  gtk_widget_show(unstep);
+  gtk_widget_show(step);
+  gtk_widget_show(end);
+  gtk_widget_show(slider);
   gtk_widget_show(bar);
+
+  return bar;
 }
 
 void launch_ui(int argc, char **argv)
@@ -346,18 +369,19 @@ void launch_ui(int argc, char **argv)
 
     // Vertical widget container
     GtkWidget *box = gtk_vbox_new(FALSE, 0);
+    GtkWidget *controls = control_bar();
 
-    add_control_bar(box);
+    gtk_box_pack_start(GTK_BOX(box), controls, FALSE, FALSE, 0);
 
     // Create a drawing area
     GtkWidget *drawing_area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(drawing_area, 1400, 850);
+    //gtk_widget_set_size_request(drawing_area, 1400, 850);
     // Expose event is our trigger to redraw
     g_signal_connect(G_OBJECT(drawing_area), "expose_event",
             G_CALLBACK(expose_event), (gpointer)&data);
 
     // Add the drawing area to the box
-    gtk_container_add(GTK_CONTAINER(box), drawing_area);
+    gtk_box_pack_start(GTK_BOX(box), drawing_area,TRUE, TRUE, 0);
 
     // Add the box to the main window
     gtk_container_add(GTK_CONTAINER(window), box);
