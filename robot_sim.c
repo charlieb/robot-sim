@@ -221,7 +221,7 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
     const float paper_size_x = 355.6;
     const float paper_size_y = 215.9;
 
-    int x, y;
+    int x;
 
     // Figure out the size of our "real-life" drawing area
     // Assume spools are placed wider than the paper width
@@ -236,14 +236,10 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
     // e.g. if the window is really tall and narrow we 
     // have to ignore most of the bottom and draw tiny in the top
     float ratio = maxx / maxy;
-    if(widget->allocation.width / (float)widget->allocation.height < ratio) {
+    if(widget->allocation.width / (float)widget->allocation.height < ratio)
       x = widget->allocation.width;
-      y = widget->allocation.width / ratio;
-    }
-    else {
+    else
       x = widget->allocation.height * ratio;
-      y = widget->allocation.height;
-    }
     // Now figure out the scaling factor to fit the spools
     // and paper onto our reduced drawing area
     float scale = x / maxx;
@@ -310,10 +306,12 @@ static void start_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, 0);
 }
+
 static void unstep_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, gtk_range_get_value(sliderp) - 1);
 }
+
 static void step_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, gtk_range_get_value(sliderp) + 1);
@@ -324,21 +322,42 @@ static void end_pressed(GtkWidget *widget, gpointer sliderp)
   gtk_range_set_value(sliderp, 
       gtk_adjustment_get_upper(gtk_range_get_adjustment(sliderp)));
 }
+static void vert_paper_offset_changed(GtkSpinButton *widget, gpointer arg1, gpointer gdata)
+{
+  ((struct draw_data*)gdata)->paper_offset_y = gtk_spin_button_get_value(widget);
+  printf("%f\n", ((struct draw_data*)gdata)->paper_offset_y); 
+}
+static gboolean slider_moved(GtkRange *range, 
+                             GtkScrollType scroll,
+                             gdouble value,
+                             gpointer data)
+{
+  gtk_range_set_value(range, 
+      gtk_adjustment_get_upper(gtk_range_get_adjustment(range)));
+  return TRUE;
+}
 
-GtkWidget *control_bar()
+GtkWidget *control_bar(struct draw_data *data)
 {
   // GtkWidget *
   // gtk_hbox_new (gboolean homogeneous,
   //               gint spacing);
-  GtkWidget *bar = gtk_hbox_new(FALSE, 10);
+  GtkWidget *box = gtk_vbox_new(TRUE, 10);
+  
+  GtkWidget *playback_bar = gtk_hbox_new(FALSE, 10);
   GtkWidget *start = gtk_button_new_with_label("|<");
   GtkWidget *unstep = gtk_button_new_with_label("<");
   GtkWidget *step = gtk_button_new_with_label(">");
   GtkWidget *end = gtk_button_new_with_label(">|");
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
 
+  GtkWidget *offset_bar = gtk_hbox_new(FALSE, 10);
+  GtkWidget *paper_x_label = gtk_label_new("Paper offset (mm) X:");
   GtkWidget *vert_paper_offset = gtk_spin_button_new_with_range(0,100,0.1);
-  GtkWidget *wheel_dist = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *paper_y_label = gtk_label_new("Y:");
+  GtkWidget *horiz_paper_offset = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *spool_dist = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *spool_dist_label = gtk_label_new("Distance between spools (mm):");
 
   /*
    * gtk_box_pack_start (GtkBox *box,
@@ -347,27 +366,51 @@ GtkWidget *control_bar()
    *                     gboolean fill,
    *                     guint padding);
    */
-  gtk_box_pack_start(GTK_BOX(bar), start, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(bar), unstep, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(bar), step, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(bar), end, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(bar), slider, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(bar), vert_paper_offset, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(bar), wheel_dist, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), start, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), unstep, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), step, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), end, TRUE, TRUE, 0);
+  
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_x_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), vert_paper_offset, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_y_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), horiz_paper_offset, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist, TRUE, TRUE, 0);
+
+  gtk_box_pack_start(GTK_BOX(box), playback_bar, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(box), slider, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(box), offset_bar, TRUE, TRUE, 0);
 
   g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
   g_signal_connect(unstep, "clicked", G_CALLBACK(unstep_pressed), slider);
   g_signal_connect(step, "clicked", G_CALLBACK(step_pressed), slider);
   g_signal_connect(end, "clicked", G_CALLBACK(end_pressed), slider);
+  g_signal_connect(slider, "change-value", G_CALLBACK(slider_moved), data);
+
+  g_signal_connect(vert_paper_offset, "change-value", G_CALLBACK(vert_paper_offset_changed), data);
+
+  g_signal_connect(vert_paper_offset, "change-value", G_CALLBACK(vert_paper_offset_changed), data);
 
   gtk_widget_show(start);
   gtk_widget_show(unstep);
   gtk_widget_show(step);
   gtk_widget_show(end);
-  gtk_widget_show(slider);
-  gtk_widget_show(bar);
+  gtk_widget_show(playback_bar);
 
-  return bar;
+  gtk_widget_show(slider);
+
+  gtk_widget_show(paper_x_label);
+  gtk_widget_show(vert_paper_offset);
+  gtk_widget_show(paper_y_label);
+  gtk_widget_show(horiz_paper_offset);
+  gtk_widget_show(spool_dist_label);
+  gtk_widget_show(spool_dist);
+  gtk_widget_show(offset_bar);
+
+  gtk_widget_show(box);
+
+  return box;
 }
 
 void launch_ui(int argc, char **argv)
@@ -393,7 +436,7 @@ void launch_ui(int argc, char **argv)
 
     // Vertical widget container
     GtkWidget *box = gtk_vbox_new(FALSE, 0);
-    GtkWidget *controls = control_bar();
+    GtkWidget *controls = control_bar(&data);
 
     gtk_box_pack_start(GTK_BOX(box), controls, FALSE, FALSE, 0);
 
