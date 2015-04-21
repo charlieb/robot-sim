@@ -149,21 +149,28 @@ struct draw_data {
     guint pos;
     float *pos_data;
     enum robot_type type;
+    float paper_offset_y;
+    float paper_offset_x;
+    float spool_distance;
 };
-void to_coords(float *x, float *y, float llen, float rlen, enum robot_type type)
+void to_coords(float *x, float *y, float spool_dist, float llen, float rlen, enum robot_type type)
 {
-    float d = 1.0;
-    float xf = (d*d + llen*llen - rlen*rlen) / (2.0 * d);
+    if(llen + rlen < spool_dist) {
+        printf("You snapped a string!\n"); fflush(NULL); 
+        exit(1);
+    }
+    float xf = (spool_dist*spool_dist + llen*llen - rlen*rlen) / (2.0 * spool_dist);
     *x = xf;
     *y = sqrt(llen*llen - xf*xf);
 }
 
 void recalc_draw_data(struct draw_data *data)
 {
-    const float ustep = 1.0 / 3200.0;
+    const float ustep = 1.0 / 320.0;
     gboolean pen_down = FALSE;
     float x, y;
-    float rlen = 0.5f, llen = 0.5f;
+    float rlen = 0.6 * data->spool_distance;
+    float llen = 0.6 * data->spool_distance;
     char lrp[3]; // left, right, pen
     int nposes = 0;
 
@@ -194,7 +201,7 @@ void recalc_draw_data(struct draw_data *data)
         // Was there actually a movement worth recording?
         // not if the pen wasn't down there wasn't!
         if(!pen_down) continue;
-        to_coords(&x, &y, llen, rlen, data->type);
+        to_coords(&x, &y, data->spool_distance, llen, rlen, data->type);
         //printf("(%f,%f)\n", x,y);
         data->poses = g_list_prepend(data->poses, &data->pos_data[nposes * 2]);
         data->pos_data[nposes * 2 + 0] = x;
@@ -211,15 +218,24 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
 {
     struct draw_data *data = gdata;
     const float pi2 = 6.28318530718;
-    const float wheel = 0.05;
-    const float paper = 0.1;
-    const float paper_size = 1.0 - 2 * paper;
+    const float paper_size_x = 355.6;
+    const float paper_size_y = 215.9;
 
     int x, y;
-    // US legal = 8.5 x 14
-    // add one to each in landscape orientation
-    float ratio = 15.0 / 9.5;
+
+    // Figure out the size of our "real-life" drawing area
+    // Assume spools are placed wider than the paper width
+    float maxx = data->spool_distance;
+    // US legal = 8.5 x 14 inches = 215.9 x 355.6 mm (+ 1cm margin)
+    float maxy = data->paper_offset_y + paper_size_y + 10.0;
+
     // Scale x and y to the desired aspect ratio
+    // The result is that x and y define the area 
+    // we want to draw in and consider the rest of 
+    // the drawable as dead space
+    // e.g. if the window is really tall and narrow we 
+    // have to ignore most of the bottom and draw tiny in the top
+    float ratio = maxx / maxy;
     if(widget->allocation.width / (float)widget->allocation.height < ratio) {
       x = widget->allocation.width;
       y = widget->allocation.width / ratio;
@@ -228,30 +244,33 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
       x = widget->allocation.height * ratio;
       y = widget->allocation.height;
     }
-
+    // Now figure out the scaling factor to fit the spools
+    // and paper onto our reduced drawing area
+    float scale = x / maxx;
+    
     cairo_t *cr = gdk_cairo_create(widget->window);
     cairo_set_source_rgb(cr,1,1,1);
     cairo_fill(cr);
 
     cairo_set_source_rgb(cr,1,0,0);
     cairo_rectangle(cr,
-                    paper * x, 
-                    paper * y, 
-                    paper_size * x,
-                    paper_size * y);
+                    data->paper_offset_x * scale, 
+                    data->paper_offset_y * scale, 
+                    paper_size_x * scale,
+                    paper_size_y * scale);
     cairo_stroke(cr);
 
     cairo_set_source_rgb(cr,0.5,0.5,0.5);
-    cairo_arc(cr, x * wheel, y * wheel, 0.5*x*wheel, 0, pi2);
+    cairo_arc(cr, 0, 0, 20, 0, pi2);
     cairo_fill(cr);
-    cairo_arc(cr, x * (1.0 - wheel), y * wheel, 0.5*x*wheel, 0, pi2);
+    cairo_arc(cr, x, 0, 20, 0, pi2);
     cairo_fill(cr);
 
     cairo_set_source_rgb(cr,0,0,0);
     for(GList *points = data->poses; points != NULL; points = points->next) {
       cairo_arc(cr, 
-                ((float*)points->data)[0] * paper_size * x + paper * x,
-                ((float*)points->data)[1] * paper_size * x + paper * y,
+                ((float*)points->data)[0] * scale,
+                ((float*)points->data)[1] * scale,
                 2,
                 0, pi2);
       cairo_fill(cr);
@@ -318,6 +337,9 @@ GtkWidget *control_bar()
   GtkWidget *end = gtk_button_new_with_label(">|");
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
 
+  GtkWidget *vert_paper_offset = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *wheel_dist = gtk_spin_button_new_with_range(0,100,0.1);
+
   /*
    * gtk_box_pack_start (GtkBox *box,
    *                     GtkWidget *child,
@@ -330,6 +352,8 @@ GtkWidget *control_bar()
   gtk_box_pack_start(GTK_BOX(bar), step, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(bar), end, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(bar), slider, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bar), vert_paper_offset, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bar), wheel_dist, TRUE, TRUE, 0);
 
   g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
   g_signal_connect(unstep, "clicked", G_CALLBACK(unstep_pressed), slider);
@@ -352,7 +376,7 @@ void launch_ui(int argc, char **argv)
 
     gtk_init(&argc, &argv);
 
-    struct draw_data data = {0,};
+    struct draw_data data = {.paper_offset_y=20.0, .spool_distance = 400.0,};
 
     data.steps = read_data("input.txt");
     data.type = wires;
