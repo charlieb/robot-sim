@@ -213,6 +213,7 @@ void recalc_draw_data(struct draw_data *data)
 
 /******************* UI *************************/
 
+GtkWidget *window;
 static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event, 
         gpointer gdata)
 {
@@ -322,10 +323,23 @@ static void end_pressed(GtkWidget *widget, gpointer sliderp)
   gtk_range_set_value(sliderp, 
       gtk_adjustment_get_upper(gtk_range_get_adjustment(sliderp)));
 }
-static void vert_paper_offset_changed(GtkSpinButton *widget, gpointer arg1, gpointer gdata)
+static void paper_offset_x_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
+{
+  ((struct draw_data*)gdata)->paper_offset_x = gtk_spin_button_get_value(widget);
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
+}
+static void paper_offset_y_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->paper_offset_y = gtk_spin_button_get_value(widget);
-  printf("%f\n", ((struct draw_data*)gdata)->paper_offset_y); 
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
+}
+static void spool_dist_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
+{
+  ((struct draw_data*)gdata)->spool_distance = gtk_spin_button_get_value(widget);
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
 }
 static gboolean slider_moved(GtkRange *range, 
                              GtkScrollType scroll,
@@ -353,9 +367,9 @@ GtkWidget *control_bar(struct draw_data *data)
 
   GtkWidget *offset_bar = gtk_hbox_new(FALSE, 10);
   GtkWidget *paper_x_label = gtk_label_new("Paper offset (mm) X:");
-  GtkWidget *vert_paper_offset = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *paper_offset_x = gtk_spin_button_new_with_range(0,100,0.1);
   GtkWidget *paper_y_label = gtk_label_new("Y:");
-  GtkWidget *horiz_paper_offset = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *paper_offset_y = gtk_spin_button_new_with_range(0,100,0.1);
   GtkWidget *spool_dist = gtk_spin_button_new_with_range(0,100,0.1);
   GtkWidget *spool_dist_label = gtk_label_new("Distance between spools (mm):");
 
@@ -372,9 +386,9 @@ GtkWidget *control_bar(struct draw_data *data)
   gtk_box_pack_start(GTK_BOX(playback_bar), end, TRUE, TRUE, 0);
   
   gtk_box_pack_start(GTK_BOX(offset_bar), paper_x_label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), vert_paper_offset, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_x, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(offset_bar), paper_y_label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), horiz_paper_offset, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_y, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist_label, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist, TRUE, TRUE, 0);
 
@@ -388,9 +402,9 @@ GtkWidget *control_bar(struct draw_data *data)
   g_signal_connect(end, "clicked", G_CALLBACK(end_pressed), slider);
   g_signal_connect(slider, "change-value", G_CALLBACK(slider_moved), data);
 
-  g_signal_connect(vert_paper_offset, "change-value", G_CALLBACK(vert_paper_offset_changed), data);
-
-  g_signal_connect(vert_paper_offset, "change-value", G_CALLBACK(vert_paper_offset_changed), data);
+  g_signal_connect(paper_offset_x, "value-changed", G_CALLBACK(paper_offset_x_changed), data);
+  g_signal_connect(paper_offset_y, "value-changed", G_CALLBACK(paper_offset_y_changed), data);
+  g_signal_connect(spool_dist, "value-changed", G_CALLBACK(spool_dist_changed), data);
 
   gtk_widget_show(start);
   gtk_widget_show(unstep);
@@ -401,9 +415,9 @@ GtkWidget *control_bar(struct draw_data *data)
   gtk_widget_show(slider);
 
   gtk_widget_show(paper_x_label);
-  gtk_widget_show(vert_paper_offset);
+  gtk_widget_show(paper_offset_y);
   gtk_widget_show(paper_y_label);
-  gtk_widget_show(horiz_paper_offset);
+  gtk_widget_show(paper_offset_x);
   gtk_widget_show(spool_dist_label);
   gtk_widget_show(spool_dist);
   gtk_widget_show(offset_bar);
@@ -415,7 +429,6 @@ GtkWidget *control_bar(struct draw_data *data)
 
 void launch_ui(int argc, char **argv)
 {
-    GtkWidget *window;
 
     gtk_init(&argc, &argv);
 
