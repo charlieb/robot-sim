@@ -213,7 +213,6 @@ void recalc_draw_data(struct draw_data *data)
 
 /******************* UI *************************/
 
-GtkWidget *window;
 static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event, 
         gpointer gdata)
 {
@@ -365,13 +364,19 @@ GtkWidget *control_bar(struct draw_data *data)
   GtkWidget *end = gtk_button_new_with_label(">|");
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
 
-  GtkWidget *offset_bar = gtk_hbox_new(FALSE, 10);
+  GtkWidget *offset_bar = gtk_hbox_new(FALSE, 1);
   GtkWidget *paper_x_label = gtk_label_new("Paper offset (mm) X:");
-  GtkWidget *paper_offset_x = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *paper_offset_x = gtk_spin_button_new_with_range(0,1000,1);
   GtkWidget *paper_y_label = gtk_label_new("Y:");
-  GtkWidget *paper_offset_y = gtk_spin_button_new_with_range(0,100,0.1);
-  GtkWidget *spool_dist = gtk_spin_button_new_with_range(0,100,0.1);
+  GtkWidget *paper_offset_y = gtk_spin_button_new_with_range(0,1000,1);
+  GtkWidget *spool_dist = gtk_spin_button_new_with_range(0,1000,1);
   GtkWidget *spool_dist_label = gtk_label_new("Distance between spools (mm):");
+
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(paper_offset_x), data->paper_offset_x);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(paper_offset_y), data->paper_offset_y);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(spool_dist), data->spool_distance);
+  //gtk_label_set_justify(GTK_LABEL(paper_y_label), GTK_JUSTIFY_RIGHT);
+  //gtk_misc_set_alignment(GTK_MISC(paper_y_label), paper_y_label->allocation.width, paper_y_label->allocation.height/2);
 
   /*
    * gtk_box_pack_start (GtkBox *box,
@@ -439,6 +444,7 @@ void launch_ui(int argc, char **argv)
     recalc_draw_data(&data);
 
     // Main window
+    GtkWidget *window;
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 
     // Main window close signal handlers
