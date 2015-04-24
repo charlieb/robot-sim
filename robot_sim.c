@@ -151,7 +151,8 @@ struct draw_data {
     enum robot_type type;
     float paper_offset_y;
     float paper_offset_x;
-    float spool_distance;
+    float spool_dist;
+    float step_dist;
 };
 void to_coords(float *x, float *y, float spool_dist, float llen, float rlen, enum robot_type type)
 {
@@ -166,15 +167,15 @@ void to_coords(float *x, float *y, float spool_dist, float llen, float rlen, enu
 
 void recalc_draw_data(struct draw_data *data)
 {
-    const float ustep = 1.0 / 320.0;
     gboolean pen_down = FALSE;
     float x, y;
-    float rlen = 0.6 * data->spool_distance;
-    float llen = 0.6 * data->spool_distance;
+    float rlen = 0.6 * data->spool_dist;
+    float llen = 0.6 * data->spool_dist;
     char lrp[3]; // left, right, pen
     int nposes = 0;
 
     g_list_free(data->poses);
+    data->poses = NULL;
     if(data->pos_data != NULL) free(data->pos_data);
 
     // allocate enough memory for one set of coords for every step.
@@ -186,12 +187,12 @@ void recalc_draw_data(struct draw_data *data)
         unpack(lrp, GPOINTER_TO_INT(step->data));
         //printf("%c%c%c\n", lrp[0], lrp[1], lrp[2]);
         switch(lrp[LEFT]) {
-            case POS_CHAR: llen += ustep; break;
-            case NEG_CHAR: llen -= ustep; break;
+            case POS_CHAR: llen += data->step_dist; break;
+            case NEG_CHAR: llen -= data->step_dist; break;
         }
         switch(lrp[RIGHT]) {
-            case POS_CHAR: rlen += ustep; break;
-            case NEG_CHAR: rlen -= ustep; break;
+            case POS_CHAR: rlen += data->step_dist; break;
+            case NEG_CHAR: rlen -= data->step_dist; break;
         }
         switch(lrp[PEN]) {
             case POS_CHAR: pen_down = TRUE; break;
@@ -201,7 +202,7 @@ void recalc_draw_data(struct draw_data *data)
         // Was there actually a movement worth recording?
         // not if the pen wasn't down there wasn't!
         if(!pen_down) continue;
-        to_coords(&x, &y, data->spool_distance, llen, rlen, data->type);
+        to_coords(&x, &y, data->spool_dist, llen, rlen, data->type);
         //printf("(%f,%f)\n", x,y);
         data->poses = g_list_prepend(data->poses, &data->pos_data[nposes * 2]);
         data->pos_data[nposes * 2 + 0] = x;
@@ -221,11 +222,13 @@ static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event,
     const float paper_size_x = 355.6;
     const float paper_size_y = 215.9;
 
+    recalc_draw_data(data);
+
     int x;
 
     // Figure out the size of our "real-life" drawing area
     // Assume spools are placed wider than the paper width
-    float maxx = data->spool_distance;
+    float maxx = data->spool_dist;
     // US legal = 8.5 x 14 inches = 215.9 x 355.6 mm (+ 1cm margin)
     float maxy = data->paper_offset_y + paper_size_y + 10.0;
 
@@ -336,7 +339,13 @@ static void paper_offset_y_changed(GtkSpinButton *widget, gpointer gdata, gpoint
 }
 static void spool_dist_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
-  ((struct draw_data*)gdata)->spool_distance = gtk_spin_button_get_value(widget);
+  ((struct draw_data*)gdata)->spool_dist = gtk_spin_button_get_value(widget);
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
+}
+static void step_dist_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
+{
+  ((struct draw_data*)gdata)->step_dist = gtk_spin_button_get_value(widget);
   GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
   gdk_window_invalidate_rect(window, NULL, TRUE);
 }
@@ -365,16 +374,20 @@ GtkWidget *control_bar(struct draw_data *data)
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
 
   GtkWidget *offset_bar = gtk_hbox_new(FALSE, 1);
-  GtkWidget *paper_x_label = gtk_label_new("Paper offset (mm) X:");
+  GtkWidget *paper_x_label = gtk_label_new("Paper offset X:");
   GtkWidget *paper_offset_x = gtk_spin_button_new_with_range(0,1000,1);
-  GtkWidget *paper_y_label = gtk_label_new("Y:");
+  GtkWidget *paper_y_label = gtk_label_new("mm       Y:");
   GtkWidget *paper_offset_y = gtk_spin_button_new_with_range(0,1000,1);
+  GtkWidget *spool_dist_label = gtk_label_new("mm      Distance between spools:");
   GtkWidget *spool_dist = gtk_spin_button_new_with_range(0,1000,1);
-  GtkWidget *spool_dist_label = gtk_label_new("Distance between spools (mm):");
+  GtkWidget *step_dist_label = gtk_label_new("mm      Step size");
+  GtkWidget *step_dist = gtk_spin_button_new_with_range(0,10,0.01);
+  GtkWidget *step_dist_unit_label = gtk_label_new("mm");
 
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(paper_offset_x), data->paper_offset_x);
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(paper_offset_y), data->paper_offset_y);
-  gtk_spin_button_set_value(GTK_SPIN_BUTTON(spool_dist), data->spool_distance);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(spool_dist), data->spool_dist);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(step_dist), data->step_dist);
   //gtk_label_set_justify(GTK_LABEL(paper_y_label), GTK_JUSTIFY_RIGHT);
   //gtk_misc_set_alignment(GTK_MISC(paper_y_label), paper_y_label->allocation.width, paper_y_label->allocation.height/2);
 
@@ -396,6 +409,9 @@ GtkWidget *control_bar(struct draw_data *data)
   gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_y, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist_label, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), step_dist_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), step_dist, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), step_dist_unit_label, TRUE, TRUE, 0);
 
   gtk_box_pack_start(GTK_BOX(box), playback_bar, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(box), slider, TRUE, TRUE, 0);
@@ -410,6 +426,7 @@ GtkWidget *control_bar(struct draw_data *data)
   g_signal_connect(paper_offset_x, "value-changed", G_CALLBACK(paper_offset_x_changed), data);
   g_signal_connect(paper_offset_y, "value-changed", G_CALLBACK(paper_offset_y_changed), data);
   g_signal_connect(spool_dist, "value-changed", G_CALLBACK(spool_dist_changed), data);
+  g_signal_connect(step_dist, "value-changed", G_CALLBACK(step_dist_changed), data);
 
   gtk_widget_show(start);
   gtk_widget_show(unstep);
@@ -425,6 +442,9 @@ GtkWidget *control_bar(struct draw_data *data)
   gtk_widget_show(paper_offset_x);
   gtk_widget_show(spool_dist_label);
   gtk_widget_show(spool_dist);
+  gtk_widget_show(step_dist_label);
+  gtk_widget_show(step_dist);
+  gtk_widget_show(step_dist_unit_label);
   gtk_widget_show(offset_bar);
 
   gtk_widget_show(box);
@@ -437,7 +457,9 @@ void launch_ui(int argc, char **argv)
 
     gtk_init(&argc, &argv);
 
-    struct draw_data data = {.paper_offset_y=20.0, .spool_distance = 400.0,};
+    struct draw_data data = {.paper_offset_y=20.0, 
+                             .spool_dist = 400.0, 
+                             .step_dist = 1.0,};
 
     data.steps = read_data("input.txt");
     data.type = wires;
