@@ -146,14 +146,14 @@ enum robot_type { wires, planar, elbow };
 struct draw_data {
     GList *steps;
     GList *poses;
-    guint pos;
     float *pos_data;
     enum robot_type type;
-    float paper_offset_y;
-    float paper_offset_x;
+    float start_llen, start_rlen;
+    float paper_offset_y, paper_offset_x;
     float spool_dist;
     float step_dist;
 };
+
 void to_coords(float *x, float *y, float spool_dist, float llen, float rlen, enum robot_type type)
 {
     if(llen + rlen < spool_dist) {
@@ -169,8 +169,8 @@ void recalc_draw_data(struct draw_data *data)
 {
     gboolean pen_down = FALSE;
     float x, y;
-    float rlen = 0.6 * data->spool_dist;
-    float llen = 0.6 * data->spool_dist;
+    float rlen = data->start_rlen;
+    float llen = data->start_llen;
     char lrp[3]; // left, right, pen
     int nposes = 0;
 
@@ -213,7 +213,6 @@ void recalc_draw_data(struct draw_data *data)
 }
 
 /******************* UI *************************/
-
 static gboolean expose_event(GtkWidget *widget, GdkEventExpose *event, 
         gpointer gdata)
 {
@@ -359,6 +358,19 @@ static gboolean slider_moved(GtkRange *range,
   return TRUE;
 }
 
+static void left_length_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
+{
+  ((struct draw_data*)gdata)->start_llen = gtk_spin_button_get_value(widget);
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
+}
+static void right_length_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
+{
+  ((struct draw_data*)gdata)->start_rlen = gtk_spin_button_get_value(widget);
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
+}
+
 GtkWidget *control_bar(struct draw_data *data)
 {
   // GtkWidget *
@@ -366,13 +378,27 @@ GtkWidget *control_bar(struct draw_data *data)
   //               gint spacing);
   GtkWidget *box = gtk_vbox_new(TRUE, 10);
   
+  // Playback bar Widgets
   GtkWidget *playback_bar = gtk_hbox_new(FALSE, 10);
   GtkWidget *start = gtk_button_new_with_label("|<");
   GtkWidget *unstep = gtk_button_new_with_label("<");
   GtkWidget *step = gtk_button_new_with_label(">");
   GtkWidget *end = gtk_button_new_with_label(">|");
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
+  // Adding widgets to playback bar
+  gtk_box_pack_start(GTK_BOX(playback_bar), start, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), unstep, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), step, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(playback_bar), end, TRUE, TRUE, 0);
+  // Playback bar events
+  g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
+  g_signal_connect(unstep, "clicked", G_CALLBACK(unstep_pressed), slider);
+  g_signal_connect(step, "clicked", G_CALLBACK(step_pressed), slider);
+  g_signal_connect(end, "clicked", G_CALLBACK(end_pressed), slider);
+  g_signal_connect(slider, "change-value", G_CALLBACK(slider_moved), data);
 
+
+  // Offset bar widgets
   GtkWidget *offset_bar = gtk_hbox_new(FALSE, 1);
   GtkWidget *paper_x_label = gtk_label_new("Paper offset X:");
   GtkWidget *paper_offset_x = gtk_spin_button_new_with_range(0,1000,1);
@@ -380,14 +406,52 @@ GtkWidget *control_bar(struct draw_data *data)
   GtkWidget *paper_offset_y = gtk_spin_button_new_with_range(0,1000,1);
   GtkWidget *spool_dist_label = gtk_label_new("mm      Distance between spools:");
   GtkWidget *spool_dist = gtk_spin_button_new_with_range(0,1000,1);
-  GtkWidget *step_dist_label = gtk_label_new("mm      Step size");
-  GtkWidget *step_dist = gtk_spin_button_new_with_range(0,10,0.01);
-  GtkWidget *step_dist_unit_label = gtk_label_new("mm");
-
+  GtkWidget *spool_dist_unit_label = gtk_label_new("mm");
+  // Setting spinbox values from input data 
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(paper_offset_x), data->paper_offset_x);
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(paper_offset_y), data->paper_offset_y);
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(spool_dist), data->spool_dist);
+  // Adding widgets to the offset bar
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_x_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_x, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_y_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_y, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist_unit_label, TRUE, TRUE, 0);
+  // offset bar events
+  g_signal_connect(paper_offset_x, "value-changed", G_CALLBACK(paper_offset_x_changed), data);
+  g_signal_connect(paper_offset_y, "value-changed", G_CALLBACK(paper_offset_y_changed), data);
+  g_signal_connect(spool_dist, "value-changed", G_CALLBACK(spool_dist_changed), data);
+
+  
+  // Step bar widgets
+  GtkWidget *step_bar = gtk_hbox_new(FALSE, 1);
+  GtkWidget *step_dist_label = gtk_label_new("Step size");
+  GtkWidget *step_dist = gtk_spin_button_new_with_range(0,10,0.01);
+  GtkWidget *step_dist_unit_label = gtk_label_new("mm      Left Length:");
+  GtkWidget *left_length = gtk_spin_button_new_with_range(0,1000,1.0);
+  GtkWidget *right_length_label = gtk_label_new("mm      Right Length:");
+  GtkWidget *right_length = gtk_spin_button_new_with_range(0,1000,1.0);
+  GtkWidget *right_length_unit_label = gtk_label_new("mm");
+  // setting spinbox value from data
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(step_dist), data->step_dist);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(left_length), data->start_llen);
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(right_length), data->start_rlen);
+  // Adding widgest to the step bar
+  gtk_box_pack_start(GTK_BOX(step_bar), step_dist_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(step_bar), step_dist, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(step_bar), step_dist_unit_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(step_bar), left_length, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(step_bar), right_length_label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(step_bar), right_length, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(step_bar), right_length_unit_label, TRUE, TRUE, 0);
+  // step bar events
+  g_signal_connect(step_dist, "value-changed", G_CALLBACK(step_dist_changed), data);
+  g_signal_connect(left_length, "value-changed", G_CALLBACK(left_length_changed), data);
+  g_signal_connect(right_length, "value-changed", G_CALLBACK(right_length_changed), data);
+
+  
   //gtk_label_set_justify(GTK_LABEL(paper_y_label), GTK_JUSTIFY_RIGHT);
   //gtk_misc_set_alignment(GTK_MISC(paper_y_label), paper_y_label->allocation.width, paper_y_label->allocation.height/2);
 
@@ -398,43 +462,19 @@ GtkWidget *control_bar(struct draw_data *data)
    *                     gboolean fill,
    *                     guint padding);
    */
-  gtk_box_pack_start(GTK_BOX(playback_bar), start, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(playback_bar), unstep, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(playback_bar), step, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(playback_bar), end, TRUE, TRUE, 0);
   
-  gtk_box_pack_start(GTK_BOX(offset_bar), paper_x_label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_x, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), paper_y_label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), paper_offset_y, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist_label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), spool_dist, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), step_dist_label, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), step_dist, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(offset_bar), step_dist_unit_label, TRUE, TRUE, 0);
 
   gtk_box_pack_start(GTK_BOX(box), playback_bar, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(box), slider, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(box), offset_bar, TRUE, TRUE, 0);
-
-  g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
-  g_signal_connect(unstep, "clicked", G_CALLBACK(unstep_pressed), slider);
-  g_signal_connect(step, "clicked", G_CALLBACK(step_pressed), slider);
-  g_signal_connect(end, "clicked", G_CALLBACK(end_pressed), slider);
-  g_signal_connect(slider, "change-value", G_CALLBACK(slider_moved), data);
-
-  g_signal_connect(paper_offset_x, "value-changed", G_CALLBACK(paper_offset_x_changed), data);
-  g_signal_connect(paper_offset_y, "value-changed", G_CALLBACK(paper_offset_y_changed), data);
-  g_signal_connect(spool_dist, "value-changed", G_CALLBACK(spool_dist_changed), data);
-  g_signal_connect(step_dist, "value-changed", G_CALLBACK(step_dist_changed), data);
+  gtk_box_pack_start(GTK_BOX(box), step_bar, TRUE, TRUE, 0);
 
   gtk_widget_show(start);
   gtk_widget_show(unstep);
   gtk_widget_show(step);
   gtk_widget_show(end);
-  gtk_widget_show(playback_bar);
-
   gtk_widget_show(slider);
+  gtk_widget_show(playback_bar);
 
   gtk_widget_show(paper_x_label);
   gtk_widget_show(paper_offset_y);
@@ -442,10 +482,16 @@ GtkWidget *control_bar(struct draw_data *data)
   gtk_widget_show(paper_offset_x);
   gtk_widget_show(spool_dist_label);
   gtk_widget_show(spool_dist);
+  gtk_widget_show(offset_bar);
+
   gtk_widget_show(step_dist_label);
   gtk_widget_show(step_dist);
   gtk_widget_show(step_dist_unit_label);
-  gtk_widget_show(offset_bar);
+  gtk_widget_show(left_length);
+  gtk_widget_show(right_length_label);
+  gtk_widget_show(right_length);
+  gtk_widget_show(right_length_unit_label);
+  gtk_widget_show(step_bar);
 
   gtk_widget_show(box);
 
@@ -457,13 +503,14 @@ void launch_ui(int argc, char **argv)
 
     gtk_init(&argc, &argv);
 
-    struct draw_data data = {.paper_offset_y=20.0, 
-                             .spool_dist = 400.0, 
-                             .step_dist = 1.0,};
-
+    const float spool_dist = 400.0;
+    struct draw_data data = {.paper_offset_y = 20.0, 
+                             .spool_dist = spool_dist, 
+                             .step_dist = 1.0,
+                             .start_llen = spool_dist * 0.6,
+                             .start_rlen = spool_dist * 0.6};
     data.steps = read_data("input.txt");
     data.type = wires;
-    recalc_draw_data(&data);
 
     // Main window
     GtkWidget *window;
@@ -486,7 +533,7 @@ void launch_ui(int argc, char **argv)
     //gtk_widget_set_size_request(drawing_area, 1400, 850);
     // Expose event is our trigger to redraw
     g_signal_connect(G_OBJECT(drawing_area), "expose_event",
-            G_CALLBACK(expose_event), (gpointer)&data);
+            G_CALLBACK(expose_event), &data);
 
     // Add the drawing area to the box
     gtk_box_pack_start(GTK_BOX(box), drawing_area,TRUE, TRUE, 0);
