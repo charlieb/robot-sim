@@ -1,4 +1,4 @@
-from math import sqrt, copysign
+from math import sqrt, copysign, pi, cos, sin
 from itertools import chain
 
 def to_coords(spool_dist, llen, rlen):
@@ -71,7 +71,24 @@ def draw_line(x1, y1, x2, y2, spool_dist = 400):
 
             yield ch1 + ch2 + '+'
 
-def test():
+def circle(x,y,r):
+    first = True
+    xp = yp = 0
+    for t in frange(90.0, start=1.0):
+        xn = x + r * cos(2*pi / (t/180))
+        yn = y + r * sin(2*pi / (t/180))
+        if first:
+            first = False
+            (llen, rlen) = to_lengths(400.0, xn, yn)
+            print("Step Distance: %f"%0.1)
+            print("Start Length Left: %f"%llen)
+            print("Start Length Right: %f"%rlen)
+        else:
+            for triple in draw_line(xp, yp, xn, yn):
+                yield triple
+        xp, yp = xn, yn
+
+def test_square():
     spool_dist = 400.0
     len_step = 0.1
     (llen, rlen) = to_lengths(spool_dist, 100, 100)
@@ -87,5 +104,8 @@ def test():
     for triple in lines:
         print triple
 
+
+
 if __name__ == "__main__":
-    test()
+    for t in circle(200, 200, 100):
+        print t
