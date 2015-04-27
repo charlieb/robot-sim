@@ -92,6 +92,17 @@ void pack_unpack_test()
 }
 
 /********** INPUT FILE READING *******************/
+enum robot_type { wires, planar, elbow };
+struct draw_data {
+    GList *steps;
+    GList *poses;
+    float *pos_data;
+    enum robot_type type;
+    float start_llen, start_rlen;
+    float paper_offset_y, paper_offset_x;
+    float spool_dist;
+    float step_dist;
+};
 /**
  * Reads a file of triples, one on each line.
  * If it encounters a bad line it will continue and return the
@@ -123,42 +134,62 @@ int read_file(FILE *f, GList **list)
 }
 // that was easier than I expected!
 
-GList *read_data(char *fname)
+long int fscan_float_maybe(FILE *f, char *str, float *var, long int pos)
 {
-    GList *triples = NULL;
+    if(1 == fscanf(f, str, var)) 
+      pos = ftell(f);
+    else
+      fseek(f, pos, SEEK_SET);
+    return pos;
+}
+struct draw_data read_data(char *fname)
+{
+  // TODO: this is really not the best place to store the defaults!
+    const float spool_dist = 400.0;
+    struct draw_data data = {.paper_offset_y = 20.0, 
+                             .spool_dist = spool_dist, 
+                             .step_dist = 1.0,
+                             .start_llen = spool_dist * 0.6,
+                             .start_rlen = spool_dist * 0.6};
+
     FILE *f = fopen(fname, "r");
     if(!f) {
         printf("Failed to open file %s\n", fname);
-        return NULL;
+        return data;
     }
-    int read_res = read_file(f, &triples);
+    long int pos = ftell(f);
+    pos = fscan_float_maybe(f, "Paper Offset Y: %f\n", &data.paper_offset_y, pos);
+    pos = fscan_float_maybe(f, "Paper Offset X: %f\n", &data.paper_offset_x, pos);
+    pos = fscan_float_maybe(f, "Step Distance: %f\n", &data.step_dist, pos);
+    pos = fscan_float_maybe(f, "Spool Distance: %f\n", &data.spool_dist, pos);
+    pos = fscan_float_maybe(f, "Start Length Left: %f\n", &data.start_llen, pos);
+    pos = fscan_float_maybe(f, "Start Length Right: %f\n", &data.start_rlen, pos);
+
+    printf("(%f, %f), %f, %f, (%f, %f)\n",
+        data.paper_offset_y,
+        data.paper_offset_x,
+        data.step_dist,
+        data.spool_dist,
+        data.start_llen,
+        data.start_rlen);
+
+    int read_res = read_file(f, &data.steps);
     if(read_res < 0) 
         printf("Non-fatal error reading file, last error found on line %i\n", -read_res);
     
     fclose(f);
-    triples = g_list_reverse(triples);
-    printf("Read %i steps\n", g_list_length(triples));
-    return triples;
+    data.steps = g_list_reverse(data.steps);
+    printf("Read %i steps\n", g_list_length(data.steps));
+    return data;
 }
 
 /***************** GEOMETRY *********************/
-enum robot_type { wires, planar, elbow };
-struct draw_data {
-    GList *steps;
-    GList *poses;
-    float *pos_data;
-    enum robot_type type;
-    float start_llen, start_rlen;
-    float paper_offset_y, paper_offset_x;
-    float spool_dist;
-    float step_dist;
-};
 
 void to_coords(float *x, float *y, float spool_dist, float llen, float rlen, enum robot_type type)
 {
     if(llen + rlen < spool_dist) {
         printf("You snapped a string!\n"); fflush(NULL); 
-        exit(1);
+        return;
     }
     float xf = (spool_dist*spool_dist + llen*llen - rlen*rlen) / (2.0 * spool_dist);
     *x = xf;
@@ -504,12 +535,16 @@ void launch_ui(int argc, char **argv)
     gtk_init(&argc, &argv);
 
     const float spool_dist = 400.0;
-    struct draw_data data = {.paper_offset_y = 20.0, 
-                             .spool_dist = spool_dist, 
-                             .step_dist = 1.0,
-                             .start_llen = spool_dist * 0.6,
-                             .start_rlen = spool_dist * 0.6};
-    data.steps = read_data("input.txt");
+    struct draw_data data;
+                          
+                          
+                          
+                          
+    if(argc > 1)
+      data = read_data(argv[1]);
+    else
+      data = read_data("input.txt");
+
     data.type = wires;
 
     // Main window
