@@ -142,45 +142,37 @@ long int fscan_float_maybe(FILE *f, char *str, float *var, long int pos)
       fseek(f, pos, SEEK_SET);
     return pos;
 }
-struct draw_data read_data(char *fname)
+int read_data(char *fname, struct draw_data *data)
 {
-  // TODO: this is really not the best place to store the defaults!
-    const float spool_dist = 400.0;
-    struct draw_data data = {.paper_offset_y = 20.0, 
-                             .spool_dist = spool_dist, 
-                             .step_dist = 1.0,
-                             .start_llen = spool_dist * 0.6,
-                             .start_rlen = spool_dist * 0.6};
-
     FILE *f = fopen(fname, "r");
     if(!f) {
         printf("Failed to open file %s\n", fname);
-        return data;
+        return -1;
     }
     long int pos = ftell(f);
-    pos = fscan_float_maybe(f, "Paper Offset Y: %f\n", &data.paper_offset_y, pos);
-    pos = fscan_float_maybe(f, "Paper Offset X: %f\n", &data.paper_offset_x, pos);
-    pos = fscan_float_maybe(f, "Step Distance: %f\n", &data.step_dist, pos);
-    pos = fscan_float_maybe(f, "Spool Distance: %f\n", &data.spool_dist, pos);
-    pos = fscan_float_maybe(f, "Start Length Left: %f\n", &data.start_llen, pos);
-    pos = fscan_float_maybe(f, "Start Length Right: %f\n", &data.start_rlen, pos);
+    pos = fscan_float_maybe(f, "Paper Offset Y: %f\n", &data->paper_offset_y, pos);
+    pos = fscan_float_maybe(f, "Paper Offset X: %f\n", &data->paper_offset_x, pos);
+    pos = fscan_float_maybe(f, "Step Distance: %f\n", &data->step_dist, pos);
+    pos = fscan_float_maybe(f, "Spool Distance: %f\n", &data->spool_dist, pos);
+    pos = fscan_float_maybe(f, "Start Length Left: %f\n", &data->start_llen, pos);
+    pos = fscan_float_maybe(f, "Start Length Right: %f\n", &data->start_rlen, pos);
 
     printf("(%f, %f), %f, %f, (%f, %f)\n",
-        data.paper_offset_y,
-        data.paper_offset_x,
-        data.step_dist,
-        data.spool_dist,
-        data.start_llen,
-        data.start_rlen);
+        data->paper_offset_y,
+        data->paper_offset_x,
+        data->step_dist,
+        data->spool_dist,
+        data->start_llen,
+        data->start_rlen);
 
-    int read_res = read_file(f, &data.steps);
+    int read_res = read_file(f, &data->steps);
     if(read_res < 0) 
         printf("Non-fatal error reading file, last error found on line %i\n", -read_res);
     
     fclose(f);
-    data.steps = g_list_reverse(data.steps);
-    printf("Read %i steps\n", g_list_length(data.steps));
-    return data;
+    data->steps = g_list_reverse(data->steps);
+    printf("Read %i steps\n", g_list_length(data->steps));
+    return 0;
 }
 
 /***************** GEOMETRY *********************/
@@ -337,6 +329,20 @@ static void destroy(GtkWidget *widget, gpointer data)
 
 static void start_pressed(GtkWidget *widget, gpointer sliderp)
 {
+    GtkWidget *dialog;
+    dialog = gtk_file_chooser_dialog_new ("Open File",
+            GTK_WINDOW(gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)))),
+            GTK_FILE_CHOOSER_ACTION_OPEN,
+            GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+            GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
+            NULL);
+    if(gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        char *filename;
+        filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+        printf("%s\n", filename);
+        g_free(filename);
+    }
+    gtk_widget_destroy (dialog);
   gtk_range_set_value(sliderp, 0);
 }
 
@@ -535,15 +541,16 @@ void launch_ui(int argc, char **argv)
     gtk_init(&argc, &argv);
 
     const float spool_dist = 400.0;
-    struct draw_data data;
-                          
-                          
-                          
+    struct draw_data data = {.paper_offset_y = 20.0, 
+                             .spool_dist = spool_dist, 
+                             .step_dist = 1.0,
+                             .start_llen = spool_dist * 0.6,
+                             .start_rlen = spool_dist * 0.6};
                           
     if(argc > 1)
-      data = read_data(argv[1]);
+      read_data(argv[1], &data);
     else
-      data = read_data("input.txt");
+      read_data("input.txt", &data);
 
     data.type = wires;
 
