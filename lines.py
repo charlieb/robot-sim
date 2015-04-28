@@ -26,11 +26,17 @@ def alpha_blend(x1, y1, x2, y2, step):
     xstep = ystep = step
     if abs(dx) > abs(dy):
         xstep = copysign(xstep, dx)
-        ystep = step * (dy / dx)
+        ystep = copysign(step * (dy / dx), dy)
     else:
-        xstep = step * (dx / dy)
+        xstep = copysign(step * (dx / dy), dx)
         ystep = copysign(ystep, dy)
-    #print(dx, dy, xstep, ystep)
+    # Sometimes the floating point delta is so
+    # close so zero that adding it to x makes no
+    # difference. The result is an infinite loop.
+    # Let's not do that k.
+    if x == x + xstep: x = x2
+    if y == y + ystep: y = y2
+    #print("alpha_blend", dx, dy, xstep, ystep)
     while abs(x - x2) > abs(xstep) or abs(y - y2) > abs(ystep):
         yield (x,y)
         x += xstep
@@ -45,7 +51,7 @@ def draw_line(x1, y1, x2, y2, spool_dist = 400):
     cart_step = 1.0 # cartesian
     for x,y in alpha_blend(x1, y1, x2, y2, cart_step):
         (llen, rlen) = to_lengths(spool_dist, x, y)
-        #print("(%f, %f) -> (%f, %f)"%(x,y,llen, rlen))
+        #print("draw_line: (%f, %f) -> (%f, %f)"%(x,y,llen, rlen))
         if prev_llen == 0 and prev_rlen == 0:
             prev_llen = llen
             prev_rlen = rlen
@@ -74,9 +80,12 @@ def draw_line(x1, y1, x2, y2, spool_dist = 400):
 def circle(x,y,r):
     first = True
     xp = yp = 0
-    for t in frange(90.0, start=1.0):
-        xn = x + r * cos(2*pi / (t/180))
-        yn = y + r * sin(2*pi / (t/180))
+    segments = 50.0
+    # segments + 2 because we need to include both
+    # the starting and ending segments
+    for t in frange(segments + 2, start=1.0):
+        xn = x + r * cos(2*pi * t/segments)
+        yn = y + r * sin(2*pi * t/segments)
         if first:
             first = False
             (llen, rlen) = to_lengths(400.0, xn, yn)
@@ -84,6 +93,7 @@ def circle(x,y,r):
             print("Start Length Left: %f"%llen)
             print("Start Length Right: %f"%rlen)
         else:
+            #print('circle: %f, %f -> %f, %f'%(xp, yp, xn, yn))
             for triple in draw_line(xp, yp, xn, yn):
                 yield triple
         xp, yp = xn, yn
@@ -102,10 +112,10 @@ def test_square():
                   draw_line(200, 100, 100, 100),
                   draw_line(100, 100, 200, 200))
     for triple in lines:
-        print triple
+        print(triple)
 
 
 
 if __name__ == "__main__":
     for t in circle(200, 200, 100):
-        print t
+        print(t)
