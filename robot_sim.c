@@ -165,6 +165,10 @@ int read_data(char *fname, struct draw_data *data)
         data->start_llen,
         data->start_rlen);
 
+    if(data->steps != NULL) {
+      g_list_free(data->steps);
+      data->steps = NULL;
+    }
     int read_res = read_file(f, &data->steps);
     if(read_res < 0) 
         printf("Non-fatal error reading file, last error found on line %i\n", -read_res);
@@ -327,63 +331,73 @@ static void destroy(GtkWidget *widget, gpointer data)
     gtk_main_quit ();
 }
 
+static void trigger_redraw(GtkWidget *widget)
+{
+  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
+  gdk_window_invalidate_rect(window, NULL, TRUE);
+}
+
+static void open_file_pressed(GtkWidget *widget, gpointer data)
+{
+  GtkWidget *dialog;
+  dialog = gtk_file_chooser_dialog_new ("Open File",
+      NULL, //GTK_WINDOW(gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)))),
+      GTK_FILE_CHOOSER_ACTION_OPEN,
+      GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+      GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
+      NULL);
+  if(gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+    char *filename;
+    filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    read_data(filename, (struct draw_data*)data);
+    g_free(filename);
+  }
+  gtk_widget_destroy(dialog);
+  trigger_redraw(widget);
+}
 static void start_pressed(GtkWidget *widget, gpointer sliderp)
 {
-    GtkWidget *dialog;
-    dialog = gtk_file_chooser_dialog_new ("Open File",
-            GTK_WINDOW(gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)))),
-            GTK_FILE_CHOOSER_ACTION_OPEN,
-            GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-            GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
-            NULL);
-    if(gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
-        char *filename;
-        filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-        printf("%s\n", filename);
-        g_free(filename);
-    }
-    gtk_widget_destroy (dialog);
   gtk_range_set_value(sliderp, 0);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 
 static void unstep_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, gtk_range_get_value(sliderp) - 1);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 
 static void step_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, gtk_range_get_value(sliderp) + 1);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 
 static void end_pressed(GtkWidget *widget, gpointer sliderp)
 {
   gtk_range_set_value(sliderp, 
       gtk_adjustment_get_upper(gtk_range_get_adjustment(sliderp)));
+  trigger_redraw(GTK_WIDGET(widget));
 }
 static void paper_offset_x_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->paper_offset_x = gtk_spin_button_get_value(widget);
-  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
-  gdk_window_invalidate_rect(window, NULL, TRUE);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 static void paper_offset_y_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->paper_offset_y = gtk_spin_button_get_value(widget);
-  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
-  gdk_window_invalidate_rect(window, NULL, TRUE);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 static void spool_dist_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->spool_dist = gtk_spin_button_get_value(widget);
-  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
-  gdk_window_invalidate_rect(window, NULL, TRUE);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 static void step_dist_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->step_dist = gtk_spin_button_get_value(widget);
-  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
-  gdk_window_invalidate_rect(window, NULL, TRUE);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 static gboolean slider_moved(GtkRange *range, 
                              GtkScrollType scroll,
@@ -398,14 +412,12 @@ static gboolean slider_moved(GtkRange *range,
 static void left_length_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->start_llen = gtk_spin_button_get_value(widget);
-  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
-  gdk_window_invalidate_rect(window, NULL, TRUE);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 static void right_length_changed(GtkSpinButton *widget, gpointer gdata, gpointer unused)
 {
   ((struct draw_data*)gdata)->start_rlen = gtk_spin_button_get_value(widget);
-  GdkWindow *window = gtk_widget_get_window(gtk_widget_get_toplevel(GTK_WIDGET(widget)));
-  gdk_window_invalidate_rect(window, NULL, TRUE);
+  trigger_redraw(GTK_WIDGET(widget));
 }
 
 GtkWidget *control_bar(struct draw_data *data)
@@ -417,17 +429,20 @@ GtkWidget *control_bar(struct draw_data *data)
   
   // Playback bar Widgets
   GtkWidget *playback_bar = gtk_hbox_new(FALSE, 10);
+  GtkWidget *open = gtk_button_new_with_label("Open File");
   GtkWidget *start = gtk_button_new_with_label("|<");
   GtkWidget *unstep = gtk_button_new_with_label("<");
   GtkWidget *step = gtk_button_new_with_label(">");
   GtkWidget *end = gtk_button_new_with_label(">|");
   GtkWidget *slider = gtk_hscale_new_with_range(0,100,1);
   // Adding widgets to playback bar
+  gtk_box_pack_start(GTK_BOX(playback_bar), open, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(playback_bar), start, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(playback_bar), unstep, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(playback_bar), step, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(playback_bar), end, TRUE, TRUE, 0);
   // Playback bar events
+  g_signal_connect(open, "clicked", G_CALLBACK(open_file_pressed), data);
   g_signal_connect(start, "clicked", G_CALLBACK(start_pressed), slider);
   g_signal_connect(unstep, "clicked", G_CALLBACK(unstep_pressed), slider);
   g_signal_connect(step, "clicked", G_CALLBACK(step_pressed), slider);
@@ -506,6 +521,7 @@ GtkWidget *control_bar(struct draw_data *data)
   gtk_box_pack_start(GTK_BOX(box), offset_bar, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(box), step_bar, TRUE, TRUE, 0);
 
+  gtk_widget_show(open);
   gtk_widget_show(start);
   gtk_widget_show(unstep);
   gtk_widget_show(step);
@@ -547,10 +563,7 @@ void launch_ui(int argc, char **argv)
                              .start_llen = spool_dist * 0.6,
                              .start_rlen = spool_dist * 0.6};
                           
-    if(argc > 1)
-      read_data(argv[1], &data);
-    else
-      read_data("input.txt", &data);
+    if(argc > 1) read_data(argv[1], &data);
 
     data.type = wires;
 
